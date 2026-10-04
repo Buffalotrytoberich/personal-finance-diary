@@ -98,24 +98,24 @@ th:first-child,td:first-child{text-align:left}
 th{color:var(--muted);font-weight:600;font-size:12px}
 tr:last-child td{border-bottom:0}
 .scroll{overflow-x:auto}
-
-body.privacy #app,body.privacy .tabs,body.privacy .fab{visibility:hidden}
-#lock{position:fixed;inset:0;z-index:100;background:var(--hero);color:var(--hero-ink);display:flex;flex-direction:column;align-items:center;justify-content:center;
-  padding:calc(24px + env(safe-area-inset-top,0px)) 24px calc(24px + env(safe-area-inset-bottom,0px))}
-#lock .ttl{font-size:21px;font-weight:700;margin-bottom:6px}
-#lock .sub{font-size:14px;opacity:.8;min-height:20px;margin-bottom:24px;text-align:center}
-.dots{display:flex;gap:14px;margin-bottom:30px}
-.dots i{width:14px;height:14px;border-radius:50%;border:2px solid var(--hero-ink);opacity:.7}
-.dots i.f{background:var(--hero-ink);opacity:1}
-.pad{display:grid;grid-template-columns:repeat(3,74px);gap:14px}
-.pad button{height:74px;border-radius:50%;border:0;background:rgba(255,255,255,.13);color:var(--hero-ink);font:inherit;font-size:27px;font-weight:600}
-.pad button:active{background:rgba(255,255,255,.28)}
-.pad button.ghost{background:transparent;font-size:14px}
-.pad button:disabled{visibility:hidden}
-.shake{animation:sh .32s}
-@keyframes sh{20%{transform:translateX(-9px)}40%{transform:translateX(9px)}60%{transform:translateX(-6px)}80%{transform:translateX(6px)}}
-@media (prefers-reduced-motion:reduce){.shake{animation:none}}
+.pagehead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.node{margin:8px 0}
+.nh{width:100%;display:flex;align-items:center;gap:10px;border:0;background:var(--surface);color:var(--ink);font:inherit;text-align:left;padding:13px 14px;border-radius:13px;box-shadow:var(--shadow);cursor:pointer}
+.nh .chev{width:14px;flex:none;color:var(--muted);font-size:13px}
+.nh .nl{flex:1;min-width:0;font-weight:650}
+.nh .nl small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.nh .ns{display:flex;flex-direction:column;align-items:flex-end;font-size:13px;font-weight:650;white-space:nowrap}
+.nh.y{background:var(--hero);color:var(--hero-ink);font-size:18px}
+.nh.y .chev,.nh.y .nl small{color:var(--hero-ink)}
+.nh.y .in{color:#8FE3C2}.nh.y .out{color:#FFB4A5}
+.nh.w{background:transparent;box-shadow:none;border:1px solid var(--line)}
+.nh.d{background:var(--chip);box-shadow:none;padding:10px 12px;font-size:15px}
+.nh.today{outline:2px solid var(--accent);outline-offset:-2px}
+div.nh.empty{opacity:.55;cursor:default}
+.nc{margin:6px 0 2px 8px;padding-left:8px;border-left:2px solid var(--line)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1.5l6 6 6-6' fill='none' stroke='%2393A59E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:38px}
+input[type=date]{display:block;text-align:left;min-height:46px}
 </style>
 </head>
 <body>
@@ -135,10 +135,15 @@ function load(){
     const raw = localStorage.getItem(KEY);
     if(raw){ const d = JSON.parse(raw); return normalize(d); }
   }catch(e){}
-  return {accounts:[], tx:[], limits:{day:0,week:0,month:0}, lastBackup:null};
+  return {accounts:[], tx:[], limits:{day:0,week:0,month:0}, lastBackup:null, startMonth:ymNow()};
 }
+function ymNow(){ const n=new Date(); return n.getFullYear()+"-"+String(n.getMonth()+1).padStart(2,"0"); }
 function normalize(d){
+  const txs=Array.isArray(d.tx)? d.tx : [];
+  let sm=d.startMonth;
+  if(!sm){ sm=ymNow(); for(const t of txs){ const k=String(t.date||"").slice(0,7); if(k&&k<sm) sm=k; } }
   return {
+    startMonth: sm,
     accounts: Array.isArray(d.accounts)? d.accounts : [],
     tx: Array.isArray(d.tx)? d.tx : [],
     limits: Object.assign({day:0,week:0,month:0}, d.limits||{}),
@@ -154,6 +159,7 @@ try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persis
 /* ============ Tiện ích ============ */
 const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtN = n => new Intl.NumberFormat("vi-VN").format(Math.round(n||0));
 const fmt = n => new Intl.NumberFormat("vi-VN").format(Math.round(n||0))+" ₫";
 const pad = n => String(n).padStart(2,"0");
 const ymd = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
@@ -191,115 +197,8 @@ function monthRange(s){
   return {from:ymd(new Date(d.getFullYear(),d.getMonth(),1)), to:ymd(new Date(d.getFullYear(),d.getMonth()+1,0))};
 }
 
-/* ============ Khóa ứng dụng (PIN / Face ID) ============ */
-const SECKEY = KEY+"_sec";
-const hasCrypto = !!(window.crypto && window.crypto.subtle && window.TextEncoder);
-let sec = loadSec();
-let locked = !!sec, pinBuf="", fails=0, waitUntil=0, bioOK=false, hiddenAt=0, waitTimer=null;
-function loadSec(){ try{ const r=localStorage.getItem(SECKEY); return r?JSON.parse(r):null; }catch(e){ return null; } }
-function saveSec(){ try{ if(sec) localStorage.setItem(SECKEY,JSON.stringify(sec)); else localStorage.removeItem(SECKEY); return true; }catch(e){ toast("Không lưu được cài đặt khóa."); return false; } }
-const b64 = buf => btoa(String.fromCharCode.apply(null,new Uint8Array(buf)));
-const unb64 = s => Uint8Array.from(atob(s),c=>c.charCodeAt(0));
-async function hashPin(pin,saltB64){
-  const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(pin),"PBKDF2",false,["deriveBits"]);
-  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt:unb64(saltB64),iterations:150000,hash:"SHA-256"},key,256);
-  return b64(bits);
-}
-async function verifyPin(pin){ return (await hashPin(pin,sec.salt))===sec.hash; }
-async function bioSupported(){
-  try{ return !!(window.PublicKeyCredential && PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); }catch(e){ return false; }
-}
-async function bioRegister(){
-  const c=await navigator.credentials.create({publicKey:{
-    challenge:crypto.getRandomValues(new Uint8Array(32)),
-    rp:{name:"Sổ tài chính"},
-    user:{id:crypto.getRandomValues(new Uint8Array(16)),name:"so-tai-chinh",displayName:"Sổ tài chính"},
-    pubKeyCredParams:[{type:"public-key",alg:-7},{type:"public-key",alg:-257}],
-    authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required"},
-    timeout:60000}});
-  return b64(c.rawId);
-}
-async function bioAuth(){
-  await navigator.credentials.get({publicKey:{
-    challenge:crypto.getRandomValues(new Uint8Array(32)),
-    allowCredentials:[{type:"public-key",id:unb64(sec.cred)}],
-    userVerification:"required",timeout:60000}});
-}
-function showLock(msg){
-  let el=document.getElementById("lock");
-  if(!el){ el=document.createElement("div"); el.id="lock"; document.body.appendChild(el); }
-  const bio = sec&&sec.cred ? '<button data-a="bio" class="ghost">Face ID</button>' : '<button disabled></button>';
-  el.innerHTML='<div class="ttl">Sổ tài chính</div><div class="sub" id="lockSub">'+esc(msg||"Nhập mã PIN để mở")+'</div><div class="dots" id="dots">'+'<i></i>'.repeat(6)+'</div><div class="pad" id="pad">'+
-    [1,2,3,4,5,6,7,8,9].map(n=>`<button data-a="key" data-k="${n}">${n}</button>`).join("")+bio+
-    '<button data-a="key" data-k="0">0</button><button data-a="key" data-k="del" class="ghost" aria-label="Xóa">⌫</button></div>';
-}
-function lockSub(t){ const e=document.getElementById("lockSub"); if(e) e.textContent=t; }
-function updateDots(){ document.querySelectorAll("#dots i").forEach((d,i)=>d.classList.toggle("f",i<pinBuf.length)); }
-function lockNow(){
-  if(!sec) return;
-  locked=true; pinBuf=""; closeSheet(); document.getElementById("app").innerHTML=""; document.body.classList.remove("privacy"); showLock();
-}
-function unlock(){
-  locked=false; pinBuf=""; fails=0; const el=document.getElementById("lock"); if(el) el.remove(); document.body.classList.remove("privacy"); render();
-}
-async function pressKey(k){
-  if(Date.now()<waitUntil) return;
-  if(k==="del") pinBuf=pinBuf.slice(0,-1); else if(pinBuf.length<6) pinBuf+=k;
-  updateDots();
-  if(pinBuf.length<6) return;
-  let ok=false; try{ ok=await verifyPin(pinBuf); }catch(e){}
-  if(ok){ unlock(); return; }
-  fails++; pinBuf=""; updateDots();
-  const pad=document.getElementById("dots"); if(pad){ pad.classList.remove("shake"); void pad.offsetWidth; pad.classList.add("shake"); }
-  if(fails>=5){
-    waitUntil=Date.now()+30000*Math.min(fails-4,6);
-    clearInterval(waitTimer);
-    waitTimer=setInterval(()=>{
-      const s=Math.ceil((waitUntil-Date.now())/1000);
-      if(s<=0){ clearInterval(waitTimer); lockSub("Nhập mã PIN để mở"); } else lockSub("Sai nhiều lần. Thử lại sau "+s+" giây");
-    },500);
-    lockSub("Sai nhiều lần. Vui lòng chờ…");
-  } else lockSub("Sai mã PIN ("+fails+"/5)");
-}
-document.addEventListener("keydown",e=>{
-  if(!locked) return;
-  if(/^[0-9]$/.test(e.key)) pressKey(e.key); else if(e.key==="Backspace") pressKey("del");
-});
-document.addEventListener("visibilitychange",()=>{
-  if(!sec||locked) return;
-  if(document.hidden){ hiddenAt=Date.now(); document.body.classList.add("privacy"); }
-  else{ document.body.classList.remove("privacy"); if(Date.now()-hiddenAt>=(sec.lockAfter||0)*1000) lockNow(); }
-});
-function secHtml(){
-  let h='<h2>Bảo mật</h2><div class="card" style="padding:14px">';
-  if(!sec){
-    h+='<div style="font-size:14px">Chưa đặt mã PIN. Ai cầm máy đã mở khóa của bạn đều xem được dữ liệu.</div><div class="btnrow"><button class="btn" data-a="pinSetup">Đặt mã PIN</button></div>';
-  } else {
-    const opts=[[0,"Ngay lập tức"],[60,"Sau 1 phút"],[300,"Sau 5 phút"]].map(([v,n])=>`<option value="${v}" ${(sec.lockAfter||0)===v?"selected":""}>${n}</option>`).join("");
-    h+=`<div style="font-size:14px">Mã PIN đang <b>bật</b>.</div><label>Tự khóa khi rời khỏi app</label><select id="lockAfter">${opts}</select><div class="btnrow">`+
-      (bioOK?`<button class="btn sec" data-a="bioToggle">${sec.cred?"Tắt":"Bật"} Face ID / vân tay</button>`:"")+
-      '<button class="btn sec" data-a="pinSetup">Đổi mã PIN</button><button class="btn del" data-a="pinOff">Tắt mã PIN</button></div>';
-  }
-  h+='<div class="note" style="padding:8px 0 0">Mã PIN chỉ khóa giao diện app, không mã hóa dữ liệu. Nếu quên PIN: xóa dữ liệu trang web trong Cài đặt Safari rồi nhập lại từ file sao lưu.</div></div>';
-  return h;
-}
-function pinSheet(){
-  const inp=(id,ph)=>`<input id="${id}" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="${ph}">`;
-  openSheet(`<h3>${sec?"Đổi mã PIN":"Đặt mã PIN"}</h3>
-    ${sec?'<label style="margin-top:0">PIN hiện tại</label>'+inp("pOld","6 số"):""}
-    <label ${sec?"":'style="margin-top:0"'}>PIN mới (6 số)</label>${inp("pNew","6 số")}
-    <label>Nhập lại PIN mới</label>${inp("pNew2","6 số")}
-    <div class="note">Hãy xuất file sao lưu trước khi đặt PIN, phòng khi quên.</div>
-    <div class="btnrow two"><button class="btn" data-a="pinSave">Lưu</button><button class="btn sec" data-a="close">Hủy</button></div>`);
-}
-function pinOffSheet(){
-  openSheet(`<h3>Tắt mã PIN</h3><label style="margin-top:0">Nhập PIN hiện tại</label>
-    <input id="pOff" type="password" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="6 số">
-    <div class="btnrow two"><button class="btn" data-a="pinOffDo">Tắt PIN</button><button class="btn sec" data-a="close">Hủy</button></div>`);
-}
-
 /* ============ Trạng thái giao diện ============ */
-const ui = {tab:"home", mode:"month", anchor:today(), cFrom:monthRange(today()).from, cTo:today()};
+const ui = {tab:"home", mode:"month", anchor:today(), cFrom:monthRange(today()).from, cTo:today(), open:new Set()};
 function range(){
   if(ui.mode==="day") return {from:ui.anchor,to:ui.anchor};
   if(ui.mode==="week") return weekRange(ui.anchor);
@@ -314,7 +213,6 @@ function shift(dir){
 
 /* ============ Hiển thị ============ */
 function render(){
-  if(locked) return;
   const app=document.getElementById("app");
   app.innerHTML = (ui.tab==="home"?viewHome():ui.tab==="tx"?viewTx():ui.tab==="stats"?viewStats():viewSettings()) + tabsHtml();
 }
@@ -350,21 +248,72 @@ function txRow(t){
 }
 function sortedTx(list){ return list.slice().sort((x,y)=> y.date.localeCompare(x.date) || (y.ts||0)-(x.ts||0)); }
 
-function viewTx(){
-  let h='<h1>Giao dịch</h1>';
-  const list=sortedTx(db.tx);
-  if(!list.length) return h+'<div class="card"><div class="empty">Chưa có giao dịch. Bấm nút + để ghi khoản thu hoặc chi đầu tiên.</div></div>';
-  let cur=null;
-  for(const t of list.slice(0,300)){
-    if(t.date!==cur){ if(cur!==null) h+='</div>'; cur=t.date;
-      const s=sumRange(t.date,t.date);
-      h+=`<div class="dayhead"><span>${dayLabel(t.date)}</span><span class="num">${s.o?'Chi '+fmt(s.o):''}${s.o&&s.i?' · ':''}${s.i?'Thu '+fmt(s.i):''}</span></div><div class="card">`; }
-    h+=txRow(t);
+function weeksOfMonth(y,m){ // m: 0-11. Tuần Thứ 2 - Chủ nhật, cắt trong phạm vi tháng
+  const last=new Date(y,m+1,0).getDate(); const segs=[]; let start=1;
+  for(let d=1; d<=last; d++){
+    const wd=(new Date(y,m,d).getDay()+6)%7; // Thứ 2 = 0
+    if(wd===6 || d===last){ segs.push([start,d]); start=d+1; }
   }
-  h+='</div>';
-  if(list.length>300) h+='<div class="note">Hiển thị 300 giao dịch gần nhất. Dùng tab Thống kê để xem theo khoảng ngày.</div>';
+  // Tuần đầu chỉ có 1 ngày (Chủ nhật) -> gộp vào tuần kế tiếp (thành 8 ngày)
+  if(segs.length>1 && segs[0][0]===segs[0][1]){ segs[1][0]=segs[0][0]; segs.shift(); }
+  // Tuần cuối chỉ có 1 ngày (Thứ 2) -> gộp vào tuần trước đó
+  if(segs.length>1 && segs[segs.length-1][0]===segs[segs.length-1][1]){ const l=segs.pop(); segs[segs.length-1][1]=l[1]; }
+  return segs;
+}
+const dstr=(y,m,d)=>y+"-"+pad(m+1)+"-"+pad(d);
+function dayIndex(){
+  const by={};
+  for(const t of db.tx){ const o=by[t.date]||(by[t.date]={i:0,o:0,list:[]}); o.list.push(t); if(t.type==="in")o.i+=t.amount; else if(t.type==="out")o.o+=t.amount; }
+  return by;
+}
+function sumDays(by,y,m,d1,d2){
+  let i=0,o=0; for(let d=d1; d<=d2; d++){ const x=by[dstr(y,m,d)]; if(x){ i+=x.i; o+=x.o; } } return {i,o};
+}
+function openPath(date){
+  const [y,m,d]=date.split("-").map(Number);
+  const wi=weeksOfMonth(y,m-1).findIndex(g=>d>=g[0]&&d<=g[1]);
+  ui.open.add("y:"+y); ui.open.add("m:"+y+"-"+pad(m)); ui.open.add("w:"+y+"-"+pad(m)+"-"+(wi+1)); ui.open.add("d:"+date);
+}
+function sumHtml(x){
+  if(!x.i && !x.o) return x.list&&x.list.length ? '<span class="mut">🔁 Chuyển tiền</span>' : '<span class="mut">—</span>';
+  return (x.i?'<span class="in">+'+fmtN(x.i)+'</span>':'')+(x.o?'<span class="out">−'+fmtN(x.o)+'</span>':'');
+}
+function node(level,key,label,sub,sum,body,extra){
+  const open=ui.open.has(key);
+  return `<div class="node"><button class="nh ${level} ${extra||""}" data-a="tog" data-k="${key}" aria-expanded="${open}"><span class="chev">${open?"▾":"▸"}</span><span class="nl">${label}${sub?"<small>"+sub+"</small>":""}</span><span class="ns">${sumHtml(sum)}</span></button>${open?'<div class="nc">'+body()+'</div>':""}</div>`;
+}
+function dayNode(by,date){
+  const x=by[date], lab=WD[parseYmd(date).getDay()]+", "+dmShort(date), td=date===today()?"today":"";
+  if(!x) return `<div class="node"><div class="nh d empty ${td}" data-day="${date}"><span class="chev"></span><span class="nl">${lab}</span><span class="ns"><span class="mut">—</span></span></div></div>`;
+  return node("d","d:"+date,lab,"",x,()=>'<div class="card">'+sortedTx(x.list).map(txRow).join("")+'</div>',td).replace('class="nh d','data-day="'+date+'" class="nh d');
+}
+function weekNode(by,y,m,gi,g){
+  const n=g[1]-g[0]+1;
+  const sub=dmShort(dstr(y,m,g[0]))+" – "+dmShort(dstr(y,m,g[1]))+(n!==7?" · "+n+" ngày":"");
+  return node("w","w:"+y+"-"+pad(m+1)+"-"+(gi+1),"Tuần "+(gi+1),sub,sumDays(by,y,m,g[0],g[1]),()=>{
+    let h=""; for(let d=g[0]; d<=g[1]; d++) h+=dayNode(by,dstr(y,m,d)); return h;
+  });
+}
+function monthNode(by,y,m){
+  const last=new Date(y,m+1,0).getDate();
+  return node("m","m:"+y+"-"+pad(m+1),"Tháng "+(m+1),"",sumDays(by,y,m,1,last),()=>weeksOfMonth(y,m).map((g,gi)=>weekNode(by,y,m,gi,g)).join(""));
+}
+function firstMonthStr(){ let m=db.startMonth||ymNow(); for(const t of db.tx){ const k=t.date.slice(0,7); if(k<m) m=k; } return m; }
+function yearNode(by,y){
+  const fm=firstMonthStr(), m0=(y===+fm.slice(0,4))?(+fm.slice(5)-1):0;
+  let i=0,o=0; for(let m=m0;m<12;m++){ const s=sumDays(by,y,m,1,new Date(y,m+1,0).getDate()); i+=s.i; o+=s.o; }
+  return node("y","y:"+y,"Năm "+y,"",{i,o},()=>{ let h=""; for(let m=m0;m<12;m++) h+=monthNode(by,y,m); return h; });
+}
+function viewTx(){
+  const by=dayIndex(), cy=new Date().getFullYear(); let minY=+firstMonthStr().slice(0,4),maxY=cy;
+  for(const t of db.tx){ const y=+t.date.slice(0,4); if(y<minY)minY=y; if(y>maxY)maxY=y; }
+  let h='<div class="pagehead"><h1>Giao dịch</h1><button class="btn sec sm" data-a="goToday">Hôm nay</button></div>';
+  if(!db.tx.length) h+='<div class="note" style="margin-bottom:8px">Chưa có giao dịch. Bấm nút + để ghi khoản thu hoặc chi đầu tiên.</div>';
+  for(let y=minY;y<=maxY;y++) h+=yearNode(by,y);
+  h+='<div class="note">Mỗi tuần chạy từ Thứ 2 đến Chủ nhật và chỉ tính trong phạm vi tháng. Số liệu không gồm chuyển tiền giữa các nguồn.</div>';
   return h;
 }
+openPath(today());
 
 function viewStats(){
   const r=range(), s=sumRange(r.from,r.to);
@@ -380,7 +329,10 @@ function viewStats(){
     h+=`<div class="nav"><button data-a="prev" aria-label="Trước">‹</button><div class="lab">${lab}<small>${sub}</small></div><button data-a="next" aria-label="Sau">›</button></div>`;
     h+='<div style="text-align:center;margin:-2px 0 10px"><button class="btn sec sm" data-a="now">Về hiện tại</button></div>';
   }
-  h+=`<div class="grid3" style="margin-top:12px"><div class="kpi"><div class="k">Thu</div><div class="v in num">${fmt(s.i)}</div></div><div class="kpi"><div class="k">Chi</div><div class="v out num">${fmt(s.o)}</div></div><div class="kpi"><div class="k">Chênh lệch</div><div class="v num ${s.i-s.o<0?"out":""}">${fmt(s.i-s.o)}</div></div></div>`;
+  h+=`<div class="grid3" style="margin-top:12px"><div class="kpi"><div class="k">Thu</div><div class="v in num">${fmt(s.i)}</div></div><div class="kpi"><div class="k">Chi</div><div class="v out num">${fmt(s.o)}</div></div><div class="kpi"><div class="k">Còn lại</div><div class="v num ${s.i-s.o<0?"out":""}">${fmt(s.i-s.o)}</div></div></div>`;
+
+  const xf=db.tx.filter(t=>t.type==="xfer"&&t.date>=r.from&&t.date<=r.to);
+  if(xf.length) h+=`<div class="note">🔁 Chuyển giữa các nguồn: <b class="num">${fmt(xf.reduce((a,t)=>a+t.amount,0))}</b> (${xf.length} lần) — không tính vào thu/chi.</div>`;
 
   const lim = ui.mode==="day"?db.limits.day: ui.mode==="week"?db.limits.week: ui.mode==="month"?db.limits.month:0;
   if(lim>0){
@@ -402,7 +354,7 @@ function viewStats(){
     h+='</div>';
   }
   const lst=sortedTx(inR);
-  h+=`<h2>Giao dịch trong khoảng (${lst.length})</h2><div class="card">`+(lst.length?lst.map(txRow).join(""):'<div class="empty">Không có giao dịch.</div>')+'</div>';
+  h+=`<h2>Chi tiết giao dịch (${lst.length})</h2><div class="card">`+(lst.length?lst.map(txRow).join(""):'<div class="empty">Không có giao dịch.</div>')+'</div>';
   h+='<div class="note">Chuyển tiền giữa các nguồn không tính vào thu/chi.</div>';
   return h;
 }
@@ -421,14 +373,13 @@ function viewSettings(){
       <label>Mỗi tuần</label><input id="limWeek" inputmode="numeric" value="${fmtInput(L.week)}" placeholder="0">
       <label>Mỗi tháng</label><input id="limMonth" inputmode="numeric" value="${fmtInput(L.month)}" placeholder="0">
       <div class="btnrow"><button class="btn" data-a="saveLimits">Lưu hạn mức</button></div></div>`;
-  h+=secHtml();
   const lb=db.lastBackup? new Date(db.lastBackup).toLocaleString("vi-VN"):"chưa từng";
   h+=`<h2>Sao lưu dữ liệu</h2><div class="card" style="padding:14px">
     <div style="font-size:14px">Sao lưu gần nhất: <b>${lb}</b></div>
     <div class="note" style="padding:6px 0 0">Dữ liệu chỉ nằm trong trình duyệt của thiết bị này, không gửi đi đâu. Nếu xóa dữ liệu Safari hoặc đổi máy, bạn sẽ mất dữ liệu nếu chưa sao lưu.</div>
     <div class="btnrow"><button class="btn" data-a="exportJson">Xuất file sao lưu (.json)</button>
     <button class="btn sec" data-a="importJson">Nhập từ file sao lưu</button>
-    <button class="btn sec" data-a="exportCsv">Xuất giao dịch (.csv, mở bằng Excel)</button></div>
+    <button class="btn sec" data-a="exportXlsx">Xuất Excel (.xlsx)</button></div>
     <input type="file" id="fileIn" accept=".json,application/json" hidden></div>`;
   h+=`<h2>Nguy hiểm</h2><div class="card" style="padding:6px 14px"><div class="btnrow" style="margin:6px 0"><button class="btn del" data-a="wipe">Xóa toàn bộ dữ liệu</button></div></div>`;
   return h;
@@ -448,6 +399,7 @@ function accSheet(id){
     <label style="margin-top:0">Tên</label><input id="aName" value="${esc(a?a.name:"")}" placeholder="VD: Vietcombank, Ví tiền mặt">
     <label>Loại</label><select id="aType">${opts}</select>
     <label>Số dư ban đầu (₫)</label><input id="aInit" inputmode="numeric" value="${a?fmtInput(Math.abs(a.initial)):""}" placeholder="0">
+    <div class="note">Số tiền đang có trong nguồn này lúc bạn bắt đầu dùng app. Số dư hiện tại = số này + thu − chi ± chuyển tiền bạn ghi sau đó.</div>
     ${a&&a.initial<0?'<div class="note">Số dư ban đầu hiện đang âm; nhập lại số dương hoặc dùng ô dưới.</div>':''}
     <div class="btnrow ${a?"two":""}"><button class="btn" data-a="saveAcc" data-id="${a?a.id:""}">Lưu</button>${a?`<button class="btn del" data-a="delAcc" data-id="${a.id}">Xóa</button>`:`<button class="btn sec" data-a="close">Hủy</button>`}</div>`);
 }
@@ -456,7 +408,7 @@ let txForm={type:"out"};
 function txSheet(id){
   if(!db.accounts.length){ toast("Hãy thêm ít nhất một nguồn tiền trước."); accSheet(); return; }
   const t=id?db.tx.find(x=>x.id===id):null;
-  txForm = t? {type:t.type} : {type:"out"};
+  txForm = t? {type:t.type,cat:t.cat||""} : {type:"out",cat:""};
   const accOpts=(sel)=>db.accounts.map(a=>`<option value="${a.id}" ${a.id===sel?"selected":""}>${esc(a.name)}</option>`).join("");
   const lastAcc = t? t.acc : (localStorage.getItem(KEY+"_lastAcc")||db.accounts[0].id);
   openSheet(`<h3>${t?"Sửa giao dịch":"Thêm giao dịch"}</h3>
@@ -464,8 +416,9 @@ function txSheet(id){
     <label>Số tiền (₫)</label><input id="tAmt" class="bigin num" inputmode="numeric" value="${t?fmtInput(t.amount):""}" placeholder="0" autocomplete="off">
     <label id="lblAcc">Nguồn tiền</label><select id="tAcc">${accOpts(lastAcc)}</select>
     <div id="boxTo"><label>Chuyển đến</label><select id="tTo">${accOpts(t&&t.to? t.to : (db.accounts.find(a=>a.id!==lastAcc)||{}).id)}</select></div>
-    <div id="boxCat"><label>Danh mục</label><input id="tCat" list="catList" value="${esc(t?t.cat||"":"")}" placeholder="Chọn hoặc tự gõ"><datalist id="catList"></datalist></div>
-    <div class="two-col"><div><label>Ngày</label><input type="date" id="tDate" value="${t?t.date:today()}"></div><div><label>Ghi chú</label><input id="tNote" value="${esc(t?t.note||"":"")}" placeholder="Tùy chọn"></div></div>
+    <div id="boxCat"><label>Danh mục</label><select id="tCat"></select><input id="tCatNew" placeholder="Nhập tên danh mục mới" style="display:none;margin-top:8px"></div>
+    <label>Ngày</label><input type="date" id="tDate" value="${t?t.date:today()}">
+    <label>Ghi chú</label><input id="tNote" value="${esc(t?t.note||"":"")}" placeholder="Tùy chọn">
     <div class="btnrow ${t?"two":""}"><button class="btn" data-a="saveTx" data-id="${t?t.id:""}">Lưu</button>${t?`<button class="btn del" data-a="delTx" data-id="${t.id}">Xóa</button>`:`<button class="btn sec" data-a="close">Hủy</button>`}</div>`);
   syncTxForm();
 }
@@ -475,7 +428,17 @@ function syncTxForm(){
   document.getElementById("boxTo").style.display = ty==="xfer"?"block":"none";
   document.getElementById("boxCat").style.display = ty==="xfer"?"none":"block";
   document.getElementById("lblAcc").textContent = ty==="xfer"?"Chuyển từ":(ty==="in"?"Nhận vào":"Trả từ");
-  document.getElementById("catList").innerHTML=(ty==="in"?CAT_IN:CAT_OUT).map(c=>`<option value="${c}">`).join("");
+  if(ty!=="xfer"){
+    const list=catsFor(ty), sel=document.getElementById("tCat");
+    const want=(txForm.cat&&list.includes(txForm.cat))?txForm.cat:list[0];
+    sel.innerHTML=list.map(c=>`<option value="${esc(c)}" ${c===want?"selected":""}>${esc(c)}</option>`).join("")+'<option value="__new__">＋ Thêm danh mục mới…</option>';
+    txForm.cat=want; document.getElementById("tCatNew").style.display="none";
+  }
+}
+function catsFor(type){
+  const set=new Set(type==="in"?CAT_IN:CAT_OUT); set.delete("Khác");
+  for(const t of db.tx){ if(t.type===type && t.cat && t.cat!=="Khác") set.add(t.cat); }
+  return [...set,"Khác"];
 }
 
 /* ============ Hành động ============ */
@@ -486,7 +449,120 @@ function toast(msg){
 }
 function val(id){ const e=document.getElementById(id); return e? e.value : ""; }
 
+
+/* ============ Xuất Excel (.xlsx) — tự viết, không cần thư viện, chạy offline ============ */
+const XLSX_MIME="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const THEME_XML="<?xml version=\"1.0\"?>\n<a:theme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Office Theme\">\n  <a:themeElements>\n    <a:clrScheme name=\"Office\">\n      <a:dk1>\n        <a:sysClr val=\"windowText\" lastClr=\"000000\"/>\n      </a:dk1>\n      <a:lt1>\n        <a:sysClr val=\"window\" lastClr=\"FFFFFF\"/>\n      </a:lt1>\n      <a:dk2>\n        <a:srgbClr val=\"1F497D\"/>\n      </a:dk2>\n      <a:lt2>\n        <a:srgbClr val=\"EEECE1\"/>\n      </a:lt2>\n      <a:accent1>\n        <a:srgbClr val=\"4F81BD\"/>\n      </a:accent1>\n      <a:accent2>\n        <a:srgbClr val=\"C0504D\"/>\n      </a:accent2>\n      <a:accent3>\n        <a:srgbClr val=\"9BBB59\"/>\n      </a:accent3>\n      <a:accent4>\n        <a:srgbClr val=\"8064A2\"/>\n      </a:accent4>\n      <a:accent5>\n        <a:srgbClr val=\"4BACC6\"/>\n      </a:accent5>\n      <a:accent6>\n        <a:srgbClr val=\"F79646\"/>\n      </a:accent6>\n      <a:hlink>\n        <a:srgbClr val=\"0000FF\"/>\n      </a:hlink>\n      <a:folHlink>\n        <a:srgbClr val=\"800080\"/>\n      </a:folHlink>\n    </a:clrScheme>\n    <a:fontScheme name=\"Office\">\n      <a:majorFont>\n        <a:latin typeface=\"Cambria\"/>\n        <a:ea typeface=\"\"/>\n        <a:cs typeface=\"\"/>\n        <a:font script=\"Jpan\" typeface=\"&#xFF2D;&#xFF33; &#xFF30;&#x30B4;&#x30B7;&#x30C3;&#x30AF;\"/>\n        <a:font script=\"Hang\" typeface=\"&#xB9D1;&#xC740; &#xACE0;&#xB515;\"/>\n        <a:font script=\"Hans\" typeface=\"&#x5B8B;&#x4F53;\"/>\n        <a:font script=\"Hant\" typeface=\"&#x65B0;&#x7D30;&#x660E;&#x9AD4;\"/>\n        <a:font script=\"Arab\" typeface=\"Times New Roman\"/>\n        <a:font script=\"Hebr\" typeface=\"Times New Roman\"/>\n        <a:font script=\"Thai\" typeface=\"Tahoma\"/>\n        <a:font script=\"Ethi\" typeface=\"Nyala\"/>\n        <a:font script=\"Beng\" typeface=\"Vrinda\"/>\n        <a:font script=\"Gujr\" typeface=\"Shruti\"/>\n        <a:font script=\"Khmr\" typeface=\"MoolBoran\"/>\n        <a:font script=\"Knda\" typeface=\"Tunga\"/>\n        <a:font script=\"Guru\" typeface=\"Raavi\"/>\n        <a:font script=\"Cans\" typeface=\"Euphemia\"/>\n        <a:font script=\"Cher\" typeface=\"Plantagenet Cherokee\"/>\n        <a:font script=\"Yiii\" typeface=\"Microsoft Yi Baiti\"/>\n        <a:font script=\"Tibt\" typeface=\"Microsoft Himalaya\"/>\n        <a:font script=\"Thaa\" typeface=\"MV Boli\"/>\n        <a:font script=\"Deva\" typeface=\"Mangal\"/>\n        <a:font script=\"Telu\" typeface=\"Gautami\"/>\n        <a:font script=\"Taml\" typeface=\"Latha\"/>\n        <a:font script=\"Syrc\" typeface=\"Estrangelo Edessa\"/>\n        <a:font script=\"Orya\" typeface=\"Kalinga\"/>\n        <a:font script=\"Mlym\" typeface=\"Kartika\"/>\n        <a:font script=\"Laoo\" typeface=\"DokChampa\"/>\n        <a:font script=\"Sinh\" typeface=\"Iskoola Pota\"/>\n        <a:font script=\"Mong\" typeface=\"Mongolian Baiti\"/>\n        <a:font script=\"Viet\" typeface=\"Times New Roman\"/>\n        <a:font script=\"Uigh\" typeface=\"Microsoft Uighur\"/>\n      </a:majorFont>\n      <a:minorFont>\n        <a:latin typeface=\"Calibri\"/>\n        <a:ea typeface=\"\"/>\n        <a:cs typeface=\"\"/>\n        <a:font script=\"Jpan\" typeface=\"&#xFF2D;&#xFF33; &#xFF30;&#x30B4;&#x30B7;&#x30C3;&#x30AF;\"/>\n        <a:font script=\"Hang\" typeface=\"&#xB9D1;&#xC740; &#xACE0;&#xB515;\"/>\n        <a:font script=\"Hans\" typeface=\"&#x5B8B;&#x4F53;\"/>\n        <a:font script=\"Hant\" typeface=\"&#x65B0;&#x7D30;&#x660E;&#x9AD4;\"/>\n        <a:font script=\"Arab\" typeface=\"Arial\"/>\n        <a:font script=\"Hebr\" typeface=\"Arial\"/>\n        <a:font script=\"Thai\" typeface=\"Tahoma\"/>\n        <a:font script=\"Ethi\" typeface=\"Nyala\"/>\n        <a:font script=\"Beng\" typeface=\"Vrinda\"/>\n        <a:font script=\"Gujr\" typeface=\"Shruti\"/>\n        <a:font script=\"Khmr\" typeface=\"DaunPenh\"/>\n        <a:font script=\"Knda\" typeface=\"Tunga\"/>\n        <a:font script=\"Guru\" typeface=\"Raavi\"/>\n        <a:font script=\"Cans\" typeface=\"Euphemia\"/>\n        <a:font script=\"Cher\" typeface=\"Plantagenet Cherokee\"/>\n        <a:font script=\"Yiii\" typeface=\"Microsoft Yi Baiti\"/>\n        <a:font script=\"Tibt\" typeface=\"Microsoft Himalaya\"/>\n        <a:font script=\"Thaa\" typeface=\"MV Boli\"/>\n        <a:font script=\"Deva\" typeface=\"Mangal\"/>\n        <a:font script=\"Telu\" typeface=\"Gautami\"/>\n        <a:font script=\"Taml\" typeface=\"Latha\"/>\n        <a:font script=\"Syrc\" typeface=\"Estrangelo Edessa\"/>\n        <a:font script=\"Orya\" typeface=\"Kalinga\"/>\n        <a:font script=\"Mlym\" typeface=\"Kartika\"/>\n        <a:font script=\"Laoo\" typeface=\"DokChampa\"/>\n        <a:font script=\"Sinh\" typeface=\"Iskoola Pota\"/>\n        <a:font script=\"Mong\" typeface=\"Mongolian Baiti\"/>\n        <a:font script=\"Viet\" typeface=\"Arial\"/>\n        <a:font script=\"Uigh\" typeface=\"Microsoft Uighur\"/>\n      </a:minorFont>\n    </a:fontScheme>\n    <a:fmtScheme name=\"Office\">\n      <a:fillStyleLst>\n        <a:solidFill>\n          <a:schemeClr val=\"phClr\"/>\n        </a:solidFill>\n        <a:gradFill rotWithShape=\"1\">\n          <a:gsLst>\n            <a:gs pos=\"0\">\n              <a:schemeClr val=\"phClr\">\n                <a:tint val=\"50000\"/>\n                <a:satMod val=\"300000\"/>\n              </a:schemeClr>\n            </a:gs>\n            <a:gs pos=\"35000\">\n              <a:schemeClr val=\"phClr\">\n                <a:tint val=\"37000\"/>\n                <a:satMod val=\"300000\"/>\n              </a:schemeClr>\n            </a:gs>\n            <a:gs pos=\"100000\">\n              <a:schemeClr val=\"phClr\">\n                <a:tint val=\"15000\"/>\n                <a:satMod val=\"350000\"/>\n              </a:schemeClr>\n            </a:gs>\n          </a:gsLst>\n          <a:lin ang=\"16200000\" scaled=\"1\"/>\n        </a:gradFill>\n        <a:gradFill rotWithShape=\"1\">\n          <a:gsLst>\n            <a:gs pos=\"0\">\n              <a:schemeClr val=\"phClr\">\n                <a:shade val=\"51000\"/>\n                <a:satMod val=\"130000\"/>\n              </a:schemeClr>\n            </a:gs>\n            <a:gs pos=\"80000\">\n              <a:schemeClr val=\"phClr\">\n                <a:shade val=\"93000\"/>\n                <a:satMod val=\"130000\"/>\n              </a:schemeClr>\n            </a:gs>\n            <a:gs pos=\"100000\">\n              <a:schemeClr val=\"phClr\">\n                <a:shade val=\"94000\"/>\n                <a:satMod val=\"135000\"/>\n              </a:schemeClr>\n            </a:gs>\n          </a:gsLst>\n          <a:lin ang=\"16200000\" scaled=\"0\"/>\n        </a:gradFill>\n      </a:fillStyleLst>\n      <a:lnStyleLst>\n        <a:ln w=\"9525\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\n          <a:solidFill>\n            <a:schemeClr val=\"phClr\">\n              <a:shade val=\"95000\"/>\n              <a:satMod val=\"105000\"/>\n            </a:schemeClr>\n          </a:solidFill>\n          <a:prstDash val=\"solid\"/>\n        </a:ln>\n        <a:ln w=\"25400\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\n          <a:solidFill>\n            <a:schemeClr val=\"phClr\"/>\n          </a:solidFill>\n          <a:prstDash val=\"solid\"/>\n        </a:ln>\n        <a:ln w=\"38100\" cap=\"flat\" cmpd=\"sng\" algn=\"ctr\">\n          <a:solidFill>\n            <a:schemeClr val=\"phClr\"/>\n          </a:solidFill>\n          <a:prstDash val=\"solid\"/>\n        </a:ln>\n      </a:lnStyleLst>\n      <a:effectStyleLst>\n        <a:effectStyle>\n          <a:effectLst>\n            <a:outerShdw blurRad=\"40000\" dist=\"20000\" dir=\"5400000\" rotWithShape=\"0\">\n              <a:srgbClr val=\"000000\">\n                <a:alpha val=\"38000\"/>\n              </a:srgbClr>\n            </a:outerShdw>\n          </a:effectLst>\n        </a:effectStyle>\n        <a:effectStyle>\n          <a:effectLst>\n            <a:outerShdw blurRad=\"40000\" dist=\"23000\" dir=\"5400000\" rotWithShape=\"0\">\n              <a:srgbClr val=\"000000\">\n                <a:alpha val=\"35000\"/>\n              </a:srgbClr>\n            </a:outerShdw>\n          </a:effectLst>\n        </a:effectStyle>\n        <a:effectStyle>\n          <a:effectLst>\n            <a:outerShdw blurRad=\"40000\" dist=\"23000\" dir=\"5400000\" rotWithShape=\"0\">\n              <a:srgbClr val=\"000000\">\n                <a:alpha val=\"35000\"/>\n              </a:srgbClr>\n            </a:outerShdw>\n          </a:effectLst>\n          <a:scene3d>\n            <a:camera prst=\"orthographicFront\">\n              <a:rot lat=\"0\" lon=\"0\" rev=\"0\"/>\n            </a:camera>\n            <a:lightRig rig=\"threePt\" dir=\"t\">\n              <a:rot lat=\"0\" lon=\"0\" rev=\"1200000\"/>\n            </a:lightRig>\n          </a:scene3d>\n          <a:sp3d>\n            <a:bevelT w=\"63500\" h=\"25400\"/>\n          </a:sp3d>\n        </a:effectStyle>\n      </a:effectStyleLst>\n      <a:bgFillStyleLst>\n        <a:solidFill>\n          <a:schemeClr val=\"phClr\"/>\n        </a:solidFill>\n        <a:gradFill rotWithShape=\"1\">\n          <a:gsLst>\n            <a:gs pos=\"0\">\n              <a:schemeClr val=\"phClr\">\n                <a:tint val=\"40000\"/>\n                <a:satMod val=\"350000\"/>\n              </a:schemeClr>\n            </a:gs>\n            <a:gs pos=\"40000\">\n              <a:schemeClr val=\"phClr\">\n                <a:tint val=\"45000\"/>\n                <a:shade val=\"99000\"/>\n                <a:satMod val=\"350000\"/>\n              </a:schemeClr>\n            </a:gs>\n            <a:gs pos=\"100000\">\n              <a:schemeClr val=\"phClr\">\n                <a:shade val=\"20000\"/>\n                <a:satMod val=\"255000\"/>\n              </a:schemeClr>\n            </a:gs>\n          </a:gsLst>\n          <a:path path=\"circle\">\n            <a:fillToRect l=\"50000\" t=\"-80000\" r=\"50000\" b=\"180000\"/>\n          </a:path>\n        </a:gradFill>\n        <a:gradFill rotWithShape=\"1\">\n          <a:gsLst>\n            <a:gs pos=\"0\">\n              <a:schemeClr val=\"phClr\">\n                <a:tint val=\"80000\"/>\n                <a:satMod val=\"300000\"/>\n              </a:schemeClr>\n            </a:gs>\n            <a:gs pos=\"100000\">\n              <a:schemeClr val=\"phClr\">\n                <a:shade val=\"30000\"/>\n                <a:satMod val=\"200000\"/>\n              </a:schemeClr>\n            </a:gs>\n          </a:gsLst>\n          <a:path path=\"circle\">\n            <a:fillToRect l=\"50000\" t=\"50000\" r=\"50000\" b=\"50000\"/>\n          </a:path>\n        </a:gradFill>\n      </a:bgFillStyleLst>\n    </a:fmtScheme>\n  </a:themeElements>\n  <a:objectDefaults/>\n  <a:extraClrSchemeLst/>\n</a:theme>\n";
+const crcT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=crcT[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function zipStore(files){
+  const enc=new TextEncoder(), parts=[], central=[]; let offset=0;
+  const u16=n=>[n&255,(n>>8)&255], u32=n=>[n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255];
+  for(const f of files){
+    const name=enc.encode(f.name), data=enc.encode(f.text), crc=crc32(data), size=data.length;
+    const lh=new Uint8Array([0x50,0x4b,3,4,...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(size),...u32(size),...u16(name.length),...u16(0)]);
+    parts.push(lh,name,data);
+    central.push(new Uint8Array([0x50,0x4b,1,2,...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(size),...u32(size),...u16(name.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(offset)]),name);
+    offset+=lh.length+name.length+size;
+  }
+  const cdSize=central.reduce((a,b)=>a+b.length,0);
+  const end=new Uint8Array([0x50,0x4b,5,6,...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(cdSize),...u32(offset),...u16(0)]);
+  return new Blob([...parts,...central,end],{type:XLSX_MIME});
+}
+function buildXlsx(){
+  const NS="http://schemas.openxmlformats.org/spreadsheetml/2006/main", RN="http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const PR="http://schemas.openxmlformats.org/package/2006/relationships", OD="http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const XH='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const SS=[], ssMap=new Map(); let ssCount=0;
+  const si=v=>{ v=String(v==null?"":v); ssCount++; if(!ssMap.has(v)){ ssMap.set(v,SS.length); SS.push(v); } return ssMap.get(v); };
+  const colL=i=>String.fromCharCode(65+i);
+  const serial=s=>{ const p=s.split("-").map(Number); return Math.round(Date.UTC(p[0],p[1]-1,p[2])/86400000)+25569; };
+  const ST={head:1,text:2,center:3,date:4,money:5,inn:6,out:7,tText:8,tMoney:9};
+  const T=(v,s)=>({k:"s",v,s}), N=(v,s)=>({k:"n",v,s}), Fm=(f,v,s)=>({k:"f",f,v,s}), E=s=>({k:"e",s});
+  const cellXml=(c,ref)=>{
+    if(c.k==="s") return `<c r="${ref}" s="${c.s}" t="s"><v>${si(c.v)}</v></c>`;
+    if(c.k==="n") return `<c r="${ref}" s="${c.s}"><v>${c.v}</v></c>`;
+    if(c.k==="f") return `<c r="${ref}" s="${c.s}"><f>${c.f}</f><v>${c.v}</v></c>`;
+    return `<c r="${ref}" s="${c.s}"/>`;
+  };
+  const sheets=[];
+  const addSheet=(name,tname,cols,rows,extra)=>{ if(!rows.length) rows=[cols.map(()=>E(ST.text))]; sheets.push({name,tname,cols,rows,extra:extra||[]}); };
+
+  // Sheet 1: Giao dịch
+  const TL={in:"Thu",out:"Chi",xfer:"Chuyển"};
+  const txs=sortedTx(db.tx);
+  const used=new Set(), nameOf={};
+  for(const a of db.accounts){ let n=a.name||"Không tên", b=n, q=2; while(used.has(n)){ n=b+" ("+q+")"; q++; } used.add(n); nameOf[a.id]=n; }
+  const gN=Math.max(2,txs.length+1), rg=c=>`'Giao dịch'!$${c}$2:$${c}$${gN}`;
+  addSheet("Giao dịch","GiaoDich",
+    [{h:"Ngày",w:14},{h:"Loại",w:11},{h:"Nguồn tiền",w:22},{h:"Chuyển đến",w:22},{h:"Danh mục",w:18},{h:"Số tiền (₫)",w:18},{h:"Ghi chú",w:36}],
+    txs.map(t=>[N(serial(t.date),ST.date),T(TL[t.type]||"",ST.center),T(nameOf[t.acc]||"",ST.text),T(t.to?nameOf[t.to]||"":"",ST.text),T(t.cat||"",ST.text),N(t.amount,t.type==="in"?ST.inn:t.type==="out"?ST.out:ST.money),T(t.note||"",ST.text)]));
+
+  // Sheet 2: Nguồn tiền (số dư ban đầu + thu - chi + chuyển vào - chuyển ra = số dư hiện tại)
+  const agg={}; for(const a of db.accounts) agg[a.id]={i:0,o:0,xin:0,xout:0};
+  for(const t of db.tx){
+    if(t.type==="in"&&agg[t.acc]) agg[t.acc].i+=t.amount;
+    else if(t.type==="out"&&agg[t.acc]) agg[t.acc].o+=t.amount;
+    else if(t.type==="xfer"){ if(agg[t.acc]) agg[t.acc].xout+=t.amount; if(agg[t.to]) agg[t.to].xin+=t.amount; }
+  }
+  const tot=[0,0,0,0,0,0];
+  const accRows=db.accounts.map((a,ix)=>{
+    const r=ix+2, g=agg[a.id], ini=Number(a.initial)||0, cur=ini+g.i-g.o+g.xin-g.xout;
+    [ini,g.i,g.o,g.xin,g.xout,cur].forEach((v,k)=>tot[k]+=v);
+    const sf=(col,kind,v)=>Fm(`SUMIFS(${rg("F")},${rg(col)},A${r},${rg("B")},"${kind}")`,v,ST.money);
+    return [T(nameOf[a.id],ST.text),T((ACC_TYPES[a.type]||ACC_TYPES.other).n,ST.text),N(ini,ST.money),
+      sf("C","Thu",g.i),sf("C","Chi",g.o),sf("D","Chuyển",g.xin),sf("C","Chuyển",g.xout),Fm(`C${r}+D${r}-E${r}+F${r}-G${r}`,cur,ST.money)];
+  });
+  const n2=accRows.length;
+  addSheet("Nguồn tiền","NguonTien",[{h:"Tên nguồn tiền",w:26},{h:"Loại",w:16},{h:"Số dư ban đầu (₫)",w:20},{h:"Thu (₫)",w:18},{h:"Chi (₫)",w:18},{h:"Chuyển vào (₫)",w:18},{h:"Chuyển ra (₫)",w:18},{h:"Số dư hiện tại (₫)",w:22}],accRows,
+    n2?[{r:n2+3,cells:[T("Tổng cộng",ST.tText),E(ST.tText),...["C","D","E","F","G","H"].map((c,k)=>Fm(`SUM(${c}2:${c}${n2+1})`,tot[k],ST.tMoney))]},
+       {r:n2+5,cells:[T("Số dư hiện tại = Số dư ban đầu + Thu − Chi + Chuyển vào − Chuyển ra, tính đến ngày "+dmy(today())+" (ngày xuất file).",ST.text)]}]:[]);
+
+  // Sheet 3: Tổng hợp tháng
+  const mm={};
+  for(const t of db.tx){ if(t.type==="xfer")continue; const k=t.date.slice(0,7); const o=mm[k]||(mm[k]={i:0,o:0}); if(t.type==="in")o.i+=t.amount; else o.o+=t.amount; }
+  const mrows=Object.keys(mm).sort().map((k,ix)=>{ const r=ix+2; return [T(k.slice(5)+"/"+k.slice(0,4),ST.center),N(mm[k].i,ST.inn),N(mm[k].o,ST.out),Fm(`B${r}-C${r}`,mm[k].i-mm[k].o,ST.money)]; });
+  addSheet("Tổng hợp tháng","TongHopThang",[{h:"Tháng",w:14},{h:"Thu (₫)",w:20},{h:"Chi (₫)",w:20},{h:"Còn lại (₫)",w:22}],mrows);
+
+  const files=[]; const ct=[], wbRels=[], wbSheets=[];
+  sheets.forEach((sh,idx)=>{
+    const n=idx+1, nc=sh.cols.length, nr=sh.rows.length+1, ref="A1:"+colL(nc-1)+nr;
+    let x=XH+`<worksheet xmlns="${NS}" xmlns:r="${RN}"><sheetViews><sheetView workbookViewId="0"${idx===0?' tabSelected="1"':""}><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="18" customHeight="1"/><cols>`+
+      sh.cols.map((c,i)=>`<col min="${i+1}" max="${i+1}" width="${c.w}" customWidth="1"/>`).join("")+`</cols><sheetData><row r="1" ht="24" customHeight="1">`+
+      sh.cols.map((c,i)=>cellXml(T(c.h,ST.head),colL(i)+"1")).join("")+`</row>`;
+    sh.rows.forEach((r,ri)=>{ x+=`<row r="${ri+2}">`+r.map((c,i)=>cellXml(c,colL(i)+(ri+2))).join("")+`</row>`; });
+    sh.extra.forEach(e=>{ x+=`<row r="${e.r}">`+e.cells.map((c,i)=>cellXml(c,colL(i)+e.r)).join("")+`</row>`; });
+    x+=`</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/><tableParts count="1"><tablePart r:id="rId1"/></tableParts></worksheet>`;
+    files.push({name:`xl/worksheets/sheet${n}.xml`,text:x});
+    files.push({name:`xl/worksheets/_rels/sheet${n}.xml.rels`,text:XH+`<Relationships xmlns="${PR}"><Relationship Id="rId1" Type="${OD}/table" Target="../tables/table${n}.xml"/></Relationships>`});
+    files.push({name:`xl/tables/table${n}.xml`,text:XH+`<table xmlns="${NS}" id="${n}" name="${sh.tname}" displayName="${sh.tname}" ref="${ref}" totalsRowShown="0"><autoFilter ref="${ref}"/><tableColumns count="${nc}">`+
+      sh.cols.map((c,i)=>`<tableColumn id="${i+1}" name="${esc(c.h)}"/>`).join("")+`</tableColumns><tableStyleInfo name="TableStyleLight1" showFirstColumn="0" showLastColumn="0" showRowStripes="1" showColumnStripes="0"/></table>`});
+    ct.push(`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`,`<Override PartName="/xl/tables/table${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>`);
+    wbRels.push(`<Relationship Id="rId${n}" Type="${OD}/worksheet" Target="worksheets/sheet${n}.xml"/>`);
+    wbSheets.push(`<sheet name="${esc(sh.name)}" sheetId="${n}" r:id="rId${n}"/>`);
+  });
+  const k=sheets.length;
+  const font=(extra,color)=>`<font>${extra}<sz val="12"/><color rgb="${color}"/><name val="Times New Roman"/><family val="1"/></font>`;
+  const bd='<border><left style="thin"><color rgb="FFB8C4BF"/></left><right style="thin"><color rgb="FFB8C4BF"/></right><top style="thin"><color rgb="FFB8C4BF"/></top><bottom style="thin"><color rgb="FFB8C4BF"/></bottom><diagonal/></border>';
+  const xf=(num,fnt,fill,al,wrap)=>`<xf numFmtId="${num}" fontId="${fnt}" fillId="${fill}" borderId="${fill===0&&num===0&&fnt===0&&al===""?0:1}" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">`+(al?`<alignment horizontal="${al}" vertical="center"${wrap?' wrapText="1"':""}/>`:"")+`</xf>`;
+  const styles=XH+`<styleSheet xmlns="${NS}"><numFmts count="1"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/></numFmts><fonts count="5">`+
+    font("","FF000000")+font("<b/>","FFFFFFFF")+font("<b/>","FF000000")+font("","FF1F7A5A")+font("","FFC2412D")+
+    `</fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0F3D3A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDCE6E2"/><bgColor indexed="64"/></patternFill></fill></fills>`+
+    `<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>${bd}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="10">`+
+    xf(0,0,0,"")+xf(0,1,2,"center",true)+xf(0,0,0,"left")+xf(0,0,0,"center")+xf(164,0,0,"center")+xf(3,0,0,"right")+xf(3,3,0,"right")+xf(3,4,0,"right")+xf(0,2,3,"left")+xf(3,2,3,"right")+
+    `</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/></styleSheet>`;
+  const sst=XH+`<sst xmlns="${NS}" count="${ssCount}" uniqueCount="${SS.length}">`+SS.map(v=>`<si><t xml:space="preserve">${esc(v)}</t></si>`).join("")+`</sst>`;
+  files.unshift({name:"[Content_Types].xml",text:XH+`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>`+ct.join("")+`<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/><Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>`},
+    {name:"_rels/.rels",text:XH+`<Relationships xmlns="${PR}"><Relationship Id="rId1" Type="${OD}/officeDocument" Target="xl/workbook.xml"/></Relationships>`},
+    {name:"xl/workbook.xml",text:XH+`<workbook xmlns="${NS}" xmlns:r="${RN}"><bookViews><workbookView activeTab="0"/></bookViews><sheets>`+wbSheets.join("")+`</sheets></workbook>`},
+    {name:"xl/_rels/workbook.xml.rels",text:XH+`<Relationships xmlns="${PR}">`+wbRels.join("")+`<Relationship Id="rId${k+1}" Type="${OD}/styles" Target="styles.xml"/><Relationship Id="rId${k+2}" Type="${OD}/sharedStrings" Target="sharedStrings.xml"/><Relationship Id="rId${k+3}" Type="${OD}/theme" Target="theme/theme1.xml"/></Relationships>`},
+    {name:"xl/styles.xml",text:styles},{name:"xl/sharedStrings.xml",text:sst},{name:"xl/theme/theme1.xml",text:THEME_XML});
+  return zipStore(files);
+}
+
 const actions = {
+  tog(el){ const k=el.dataset.k; if(ui.open.has(k)) ui.open.delete(k); else ui.open.add(k); render(); },
+  goToday(){ openPath(today()); render(); setTimeout(()=>{ const e=document.querySelector('[data-day="'+today()+'"]'); if(e) e.scrollIntoView({block:"center"}); },30); },
   tab(el){ ui.tab=el.dataset.k; render(); window.scrollTo(0,0); },
   mode(el){ ui.mode=el.dataset.k; render(); },
   prev(){ shift(-1); render(); }, next(){ shift(1); render(); },
@@ -495,7 +571,7 @@ const actions = {
   addTx(){ txSheet(); }, editTx(el){ txSheet(el.dataset.id); },
   close(){ closeSheet(); },
   overlay(el,e){ if(e.target===el) closeSheet(); },
-  ttype(el){ txForm.type=el.dataset.k; syncTxForm(); },
+  ttype(el){ txForm.type=el.dataset.k; txForm.cat=""; syncTxForm(); },
   saveAcc(el){
     const name=val("aName").trim(); if(!name){ toast("Nhập tên nguồn tiền."); return; }
     const init=parseMoney(val("aInit")), type=val("aType"), id=el.dataset.id;
@@ -514,12 +590,16 @@ const actions = {
     const type=txForm.type, acc=val("tAcc"), to=val("tTo"), date=val("tDate")||today();
     if(type==="xfer" && acc===to){ toast("Hai nguồn tiền phải khác nhau."); return; }
     const rec={type,amount,acc,date,note:val("tNote").trim()};
-    if(type==="xfer") rec.to=to; else rec.cat=val("tCat").trim()||"Khác";
+    if(type==="xfer") rec.to=to; else{
+      const sel=val("tCat"); const cat=sel==="__new__"?val("tCatNew").trim():sel;
+      if(!cat){ toast("Nhập tên danh mục mới."); return; }
+      rec.cat=cat;
+    }
     const id=el.dataset.id;
     if(id){ const i=db.tx.findIndex(x=>x.id===id); db.tx[i]=Object.assign({id,ts:db.tx[i].ts||Date.now()},rec); }
     else db.tx.push(Object.assign({id:uid(),ts:Date.now()},rec));
     try{ localStorage.setItem(KEY+"_lastAcc",acc); }catch(e){}
-    save(); closeSheet(); render(); toast("Đã lưu");
+    openPath(date); save(); closeSheet(); render(); toast("Đã lưu");
   },
   delTx(el){ if(!confirm("Xóa giao dịch này?")) return; db.tx=db.tx.filter(t=>t.id!==el.dataset.id); save(); closeSheet(); render(); },
   saveLimits(){
@@ -531,51 +611,28 @@ const actions = {
     download("so-tai-chinh-"+today()+".json", JSON.stringify(db,null,1), "application/json"); render();
   },
   importJson(){ document.getElementById("fileIn").click(); },
-  exportCsv(){
-    const q=s=>'"'+String(s==null?"":s).replace(/"/g,'""')+'"';
-    const rows=[["Ngày","Loại","Nguồn tiền","Chuyển đến","Danh mục","Số tiền","Ghi chú"]];
-    for(const t of sortedTx(db.tx)){
-      rows.push([t.date,{in:"Thu",out:"Chi",xfer:"Chuyển"}[t.type],(accById(t.acc)||{}).name||"",t.to?(accById(t.to)||{}).name||"":"",t.cat||"",t.amount,t.note||""]);
-    }
-    download("giao-dich-"+today()+".csv","\ufeff"+rows.map(r=>r.map(q).join(",")).join("\r\n"),"text/csv");
-  },
-  key(el){ pressKey(el.dataset.k); },
-  async bio(){ try{ await bioAuth(); unlock(); }catch(e){ lockSub("Không xác thực được. Hãy nhập mã PIN."); } },
-  pinSetup(){ if(!hasCrypto){ toast("Trình duyệt này không hỗ trợ khóa PIN."); return; } pinSheet(); },
-  pinOff(){ pinOffSheet(); },
-  async pinSave(){
-    try{
-      if(sec && !(await verifyPin(val("pOld")))){ toast("PIN hiện tại không đúng."); return; }
-      const a=val("pNew"), b=val("pNew2");
-      if(!/^\d{6}$/.test(a)){ toast("PIN mới phải gồm đúng 6 chữ số."); return; }
-      if(a!==b){ toast("Hai lần nhập PIN chưa khớp."); return; }
-      const salt=b64(crypto.getRandomValues(new Uint8Array(16)));
-      sec={salt,hash:await hashPin(a,salt),cred:sec?sec.cred:null,lockAfter:sec?sec.lockAfter:60};
-      saveSec(); closeSheet(); render(); toast("Đã lưu mã PIN");
-    }catch(e){ toast("Không đặt được PIN trên trình duyệt này."); }
-  },
-  async pinOffDo(){
-    try{ if(!(await verifyPin(val("pOff")))){ toast("PIN không đúng."); return; } }catch(e){ return; }
-    sec=null; saveSec(); closeSheet(); render(); toast("Đã tắt mã PIN");
-  },
-  async bioToggle(){
-    if(sec.cred){ sec.cred=null; saveSec(); render(); toast("Đã tắt Face ID / vân tay"); return; }
-    try{ sec.cred=await bioRegister(); saveSec(); render(); toast("Đã bật Face ID / vân tay"); }
-    catch(e){ sec.cred=null; toast("Không bật được trên thiết bị hoặc chế độ này."); }
-  },
+  exportXlsx(){ saveFile("so-tai-chinh-"+today()+".xlsx",[buildXlsx()],XLSX_MIME); },
   wipe(){
     if(!confirm("Xóa TOÀN BỘ dữ liệu? Không thể hoàn tác.")) return;
     if(!confirm("Chắc chắn chưa? Hãy chắc rằng bạn đã xuất file sao lưu.")) return;
-    db={accounts:[],tx:[],limits:{day:0,week:0,month:0},lastBackup:null}; save(); render();
+    db={accounts:[],tx:[],limits:{day:0,week:0,month:0},lastBackup:null,startMonth:ymNow()}; save(); render();
   }
 };
 
-function download(name,content,type){
-  const blob=new Blob([content],{type});
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+async function saveFile(name,parts,type){
+  const blob=new Blob(parts,{type});
+  if(isIOS && navigator.canShare){
+    try{
+      const f=new File([blob],name,{type});
+      if(navigator.canShare({files:[f]})){ await navigator.share({files:[f]}); return; }
+    }catch(e){ if(e && e.name==="AbortError") return; }
+  }
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},1500);
 }
+const download=(name,content,type)=>saveFile(name,[content],type);
 
 document.addEventListener("click",e=>{
   const el=e.target.closest("[data-a]"); if(!el) return;
@@ -583,12 +640,11 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("input",e=>{
   const id=e.target.id;
-  if(id==="pOld"||id==="pNew"||id==="pNew2"||id==="pOff"){ e.target.value=e.target.value.replace(/\D/g,"").slice(0,6); return; }
   if(id==="tAmt"||id==="limDay"||id==="limWeek"||id==="limMonth"||id==="aInit") e.target.value=fmtInput(e.target.value);
 });
 document.addEventListener("change",e=>{
   const id=e.target.id;
-  if(id==="lockAfter"){ sec.lockAfter=Number(e.target.value); saveSec(); }
+  if(id==="tCat"){ txForm.cat=e.target.value; const n=document.getElementById("tCatNew"); n.style.display=e.target.value==="__new__"?"block":"none"; if(e.target.value==="__new__") n.focus(); }
   else if(id==="cFrom"){ ui.cFrom=e.target.value||ui.cFrom; render(); }
   else if(id==="cTo"){ ui.cTo=e.target.value||ui.cTo; render(); }
   else if(id==="fileIn" && e.target.files[0]){
@@ -608,8 +664,8 @@ document.addEventListener("change",e=>{
 if("serviceWorker" in navigator){
   window.addEventListener("load",()=>{ navigator.serviceWorker.register("sw.js").catch(()=>{}); });
 }
-bioSupported().then(v=>{ bioOK=v; if(!locked&&ui.tab==="set") render(); });
-if(sec){ showLock(); } else { render(); }
+try{ localStorage.removeItem(KEY+"_sec"); }catch(e){}
+render();
 </script>
 </body>
 </html>
